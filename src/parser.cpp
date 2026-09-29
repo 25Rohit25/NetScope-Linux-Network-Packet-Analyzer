@@ -104,6 +104,7 @@ bool parse_transport(PacketInfo& info, const std::uint8_t* p, std::size_t length
 PacketInfo parse_packet(const std::uint8_t* bytes, std::size_t length) {
     PacketInfo info;
     info.captured_bytes = length;
+    info.wire_bytes = length;
     if (bytes == nullptr || length < 14) {
         info.error = "truncated Ethernet header";
         return info;
@@ -214,7 +215,8 @@ std::string transport_name(TransportProtocol protocol) {
 }
 
 std::string packet_summary(const PacketInfo& packet) {
-    if (!packet.valid) return "MALFORMED: " + packet.error;
+    if (!packet.valid)
+        return (packet.capture_truncated ? "TRUNCATED: " : "MALFORMED: ") + packet.error;
     std::ostringstream out;
     if (packet.network == NetworkProtocol::arp) {
         out << "ARP op=" << packet.arp_operation;
@@ -235,6 +237,8 @@ std::string packet_summary(const PacketInfo& packet) {
     }
     if (!packet.application.empty()) out << " [" << packet.application << ']';
     if (packet.fragmented) out << " [fragmented]";
+    if (packet.capture_truncated)
+        out << " [capture truncated " << packet.captured_bytes << '/' << packet.wire_bytes << " bytes]";
     if (packet.network == NetworkProtocol::ipv4 || packet.network == NetworkProtocol::ipv6)
         out << " ttl=" << static_cast<unsigned>(packet.ttl);
     if (packet.transport == TransportProtocol::tcp) {

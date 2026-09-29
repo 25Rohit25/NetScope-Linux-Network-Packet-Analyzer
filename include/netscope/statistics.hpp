@@ -36,6 +36,7 @@ struct FlowStats {
     std::chrono::system_clock::time_point first_seen;
     std::chrono::system_clock::time_point last_seen;
     std::string tcp_state = "OBSERVED";
+    std::uint64_t last_capture_sequence = 0;
 };
 
 struct Snapshot {
@@ -43,6 +44,7 @@ struct Snapshot {
     std::uint64_t processed = 0;
     std::uint64_t queue_dropped = 0;
     std::uint64_t malformed = 0;
+    std::uint64_t truncated = 0;
     std::uint64_t captured_bytes = 0;
     std::uint64_t processed_bytes = 0;
     std::uint64_t tcp = 0;
@@ -71,7 +73,8 @@ public:
     void note_captured(std::size_t bytes, std::size_t queue_depth);
     void note_queue_drop();
     void record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp,
-                std::chrono::nanoseconds latency = std::chrono::nanoseconds::zero());
+                std::chrono::nanoseconds latency = std::chrono::nanoseconds::zero(),
+                std::uint64_t capture_sequence = 0);
     Snapshot snapshot(std::size_t queue_depth) const;
     std::map<FlowKey, FlowStats> flows() const;
 

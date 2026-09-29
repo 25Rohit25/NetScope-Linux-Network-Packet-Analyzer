@@ -50,10 +50,11 @@ void Statistics::note_queue_drop() {
 }
 
 void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp,
-                        std::chrono::nanoseconds latency) {
+                        std::chrono::nanoseconds latency, std::uint64_t capture_sequence) {
     std::lock_guard<std::mutex> lock(mutex_);
     ++totals_.processed;
     totals_.processed_bytes += packet.captured_bytes;
+    if (packet.capture_truncated) ++totals_.truncated;
     if (latency.count() > 0) {
         const auto elapsed = static_cast<std::uint64_t>(latency.count());
         ++totals_.latency_samples;
@@ -61,7 +62,7 @@ void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::tim
         totals_.max_latency_ns = std::max(totals_.max_latency_ns, elapsed);
     }
     if (!packet.valid) {
-        ++totals_.malformed;
+        if (!packet.capture_truncated) ++totals_.malformed;
         return;
     }
     if (packet.network == NetworkProtocol::ipv4) ++totals_.ipv4;
@@ -98,9 +99,13 @@ void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::tim
     auto& flow = it->second;
     ++flow.traffic.packets;
     flow.traffic.bytes += packet.captured_bytes;
-    flow.last_seen = timestamp;
-    if (packet.transport == TransportProtocol::tcp)
+    if (flow.traffic.packets == 1 || timestamp < flow.first_seen) flow.first_seen = timestamp;
+    if (flow.traffic.packets == 1 || timestamp > flow.last_seen) flow.last_seen = timestamp;
+    if (packet.transport == TransportProtocol::tcp &&
+        (capture_sequence == 0 || capture_sequence >= flow.last_capture_sequence)) {
         flow.tcp_state = tcp_state(packet.tcp_flags, flow.tcp_state);
+        flow.last_capture_sequence = capture_sequence;
+    }
 }
 
 Snapshot Statistics::snapshot(std::size_t queue_depth) const {
@@ -124,7 +129,8 @@ std::string format_snapshot(const Snapshot& s) {
     std::ostringstream out;
     out << "\nNetScope statistics (" << std::fixed << std::setprecision(1) << s.elapsed_seconds << " s)\n"
         << "Captured: " << s.captured << "  Processed: " << s.processed
-        << "  Queue dropped: " << s.queue_dropped << "  Malformed: " << s.malformed << '\n'
+        << "  Queue dropped: " << s.queue_dropped << "  Malformed: " << s.malformed
+        << "  Capture truncated: " << s.truncated << '\n'
         << "Bytes captured: " << s.captured_bytes << "  Bytes processed: " << s.processed_bytes << '\n'
         << "IPv4: " << s.ipv4 << "  IPv6: " << s.ipv6 << "  ARP: " << s.arp
         << "  TCP: " << s.tcp << "  UDP: " << s.udp << "  ICMP: " << s.icmp << '\n'

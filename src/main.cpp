@@ -4,13 +4,17 @@
 
 #include <pcap.h>
 
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -38,8 +42,18 @@ struct Options {
 struct RawPacket {
     std::chrono::system_clock::time_point timestamp;
     std::chrono::steady_clock::time_point enqueued_at;
+    std::size_t wire_bytes = 0;
+    std::uint64_t capture_sequence = 0;
     std::vector<std::uint8_t> bytes;
 };
+
+void log_warning(std::mutex& output_mutex, const std::string& message) {
+    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+    gmtime_r(&now, &utc);
+    std::lock_guard<std::mutex> lock(output_mutex);
+    std::cerr << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ") << " WARN " << message << '\n';
+}
 
 std::size_t positive_number(const std::string& value, std::size_t maximum, const char* option) {
     std::size_t used = 0;
@@ -110,7 +124,7 @@ using PcapHandle = std::unique_ptr<pcap_t, decltype(&pcap_close)>;
 PcapHandle open_capture(const Options& options) {
     char error[PCAP_ERRBUF_SIZE] = {};
     pcap_t* raw = options.file_name.empty()
-        ? pcap_open_live(options.interface_name.c_str(), 65535, 1, 250, error)
+        ? pcap_open_live(options.interface_name.c_str(), 262144, 1, 250, error)
         : pcap_open_offline(options.file_name.c_str(), error);
     if (!raw) throw std::runtime_error(std::string("capture open failed: ") + error);
     PcapHandle handle(raw, pcap_close);
@@ -132,16 +146,24 @@ int run(const Options& options) {
     netscope::ConcurrentQueue<RawPacket> queue(options.queue_capacity);
     netscope::Statistics stats;
     std::mutex output_mutex;
+    std::atomic<unsigned> warning_count{0};
     std::vector<std::thread> workers;
     workers.reserve(options.workers);
     for (std::size_t i = 0; i < options.workers; ++i) {
         workers.emplace_back([&] {
             RawPacket raw;
             while (queue.pop(raw)) {
-                const auto packet = netscope::parse_packet(raw.bytes.data(), raw.bytes.size());
+                auto packet = netscope::parse_packet(raw.bytes.data(), raw.bytes.size());
+                packet.wire_bytes = raw.wire_bytes;
+                packet.capture_truncated = raw.wire_bytes > raw.bytes.size();
                 const auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now() - raw.enqueued_at);
-                stats.record(packet, raw.timestamp, latency);
+                stats.record(packet, raw.timestamp, latency, raw.capture_sequence);
+                if (!packet.valid) {
+                    const auto warnings = warning_count.fetch_add(1);
+                    if (warnings < 10) log_warning(output_mutex, netscope::packet_summary(packet));
+                    else if (warnings == 10) log_warning(output_mutex, "further packet warnings suppressed");
+                }
                 if (options.verbose) {
                     std::lock_guard<std::mutex> lock(output_mutex);
                     std::cout << netscope::packet_summary(packet) << '\n';
@@ -168,14 +190,15 @@ int run(const Options& options) {
             packet.timestamp = std::chrono::system_clock::from_time_t(header->ts.tv_sec) +
                 std::chrono::microseconds(header->ts.tv_usec);
             packet.enqueued_at = std::chrono::steady_clock::now();
+            packet.wire_bytes = header->len;
+            packet.capture_sequence = ++captured_count;
             packet.bytes.assign(bytes, bytes + header->caplen);
             const auto packet_size = packet.bytes.size();
             std::size_t depth = 0;
             if (!queue.try_push(std::move(packet), &depth)) stats.note_queue_drop();
             stats.note_captured(packet_size, depth);
-            ++captured_count;
             if (depth * 5 >= options.queue_capacity * 4 && !queue_warning) {
-                std::cerr << "WARN packet queue at least 80% full\n";
+                log_warning(output_mutex, "packet queue at least 80% full");
                 queue_warning = true;
             } else if (depth * 2 < options.queue_capacity) {
                 queue_warning = false;

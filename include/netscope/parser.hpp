@@ -13,6 +13,8 @@ struct PacketInfo {
     bool valid = false;
     std::string error;
     std::size_t captured_bytes = 0;
+    std::size_t wire_bytes = 0;
+    bool capture_truncated = false;
     std::string source_mac;
     std::string destination_mac;
     NetworkProtocol network = NetworkProtocol::unknown;

@@ -84,6 +84,29 @@ void test_statistics_and_flows() {
     packet.source_ip = "203.0.113.9";
     stats.record(packet, now);
     expect(stats.snapshot(0).untracked_hosts == 1, "source host capacity");
+
+    netscope::Statistics reordered;
+    packet.source_ip = "192.0.2.1";
+    packet.source_port = 12345;
+    packet.tcp_flags = 0x10;
+    reordered.record(packet, now + std::chrono::seconds(2), {}, 2);
+    packet.tcp_flags = 0x02;
+    reordered.record(packet, now, {}, 1);
+    const auto ordered_flow = reordered.flows().begin()->second;
+    expect(ordered_flow.first_seen == now && ordered_flow.last_seen == now + std::chrono::seconds(2),
+           "out-of-order worker timestamps");
+    expect(ordered_flow.tcp_state == "ESTABLISHED", "capture-order TCP state");
+
+    netscope::PacketInfo truncated;
+    truncated.captured_bytes = 20;
+    truncated.wire_bytes = 54;
+    truncated.capture_truncated = true;
+    truncated.error = "truncated IPv4 header";
+    reordered.record(truncated, now);
+    const auto truncated_snapshot = reordered.snapshot(0);
+    expect(truncated_snapshot.truncated == 1 && truncated_snapshot.malformed == 0,
+           "capture truncation is distinct from malformed input");
+    expect(netscope::packet_summary(truncated).find("TRUNCATED:") == 0, "truncation summary");
 }
 
 }  // namespace

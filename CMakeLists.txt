@@ -36,6 +36,10 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_smoke.py $<TARGET_FILE:netscope>)
       add_test(NAME offline_load COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_load.py $<TARGET_FILE:netscope>)
+      add_test(NAME demo_capture COMMAND $<TARGET_FILE:netscope>
+        --file ${CMAKE_CURRENT_SOURCE_DIR}/samples/demo.pcap)
+      set_tests_properties(demo_capture PROPERTIES
+        PASS_REGULAR_EXPRESSION "ARP: 1  TCP: 1  UDP: 1  ICMP: 1")
     endif()
   endif()
 endif()

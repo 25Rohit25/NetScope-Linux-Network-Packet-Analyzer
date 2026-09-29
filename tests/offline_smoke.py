@@ -36,6 +36,23 @@ def main() -> None:
             if expected not in output:
                 raise AssertionError(f"Missing {expected!r} in NetScope output:\n{output}")
 
+        clipped = pathlib.Path(directory) / "clipped.pcap"
+        clipped.write_bytes(
+            struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
+            + struct.pack("<IIII", 1, 0, 16, len(packet))
+            + packet[:16]
+        )
+        clipped_run = subprocess.run(
+            [sys.argv[1], "--file", str(clipped), "--verbose"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        for expected in ("TRUNCATED:", "Malformed: 0", "Capture truncated: 1"):
+            if expected not in clipped_run.stdout:
+                raise AssertionError(f"Missing {expected!r}:\n{clipped_run.stdout}\n{clipped_run.stderr}")
+
 
 if __name__ == "__main__":
     main()
