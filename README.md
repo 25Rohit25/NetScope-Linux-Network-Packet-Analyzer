@@ -31,7 +31,7 @@ Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, let
 - Ethernet and up to two 802.1Q/802.1ad VLAN tags
 - IPv4, IPv6, and Ethernet/IPv4 ARP
 - TCP, UDP, ICMP, and ICMPv6; common application names inferred from well-known ports
-- IPv4 fragments remain visible but are not decoded as transport packets; IPv6 extension headers remain visible without transport decoding
+- IPv4 and IPv6 fragments remain visible but are not decoded as transport packets; common IPv6 extension headers are traversed with length and depth checks
 - Ethernet link type only; no TCP reassembly, application payload parsing, or IPv4 checksum validation
 
 The parser rejects truncated or inconsistent supported headers before accessing fields. It extracts IPv4 and UDP checksum fields but does not validate checksum integrity. Packet bytes are copied before libpcap advances, so workers never hold a pointer into libpcap's reused capture buffer.

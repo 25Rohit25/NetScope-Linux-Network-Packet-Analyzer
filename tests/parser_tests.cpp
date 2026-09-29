@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -105,6 +106,34 @@ void test_ipv6() {
     const auto packet = netscope::parse_packet(bytes.data(), bytes.size());
     expect(packet.valid && packet.network == NetworkProtocol::ipv6 && packet.transport == TransportProtocol::udp, "IPv6 UDP");
     expect(packet.source_ip.substr(0, 4) == "2001" && packet.ttl == 42, "IPv6 fields");
+
+    // A Hop-by-Hop header precedes the UDP header.
+    auto extended = bytes;
+    extended.resize(70);
+    extended[19] = 16;
+    extended[20] = 0;
+    extended[54] = 17;
+    extended[55] = 0;
+    for (int i = 56; i < 62; ++i) extended[i] = 0;
+    extended[62] = 0; extended[63] = 53;
+    extended[64] = 0x30; extended[65] = 0x39;
+    extended[66] = 0; extended[67] = 8;
+    auto parsed = netscope::parse_packet(extended.data(), extended.size());
+    expect(parsed.valid && parsed.transport == TransportProtocol::udp && parsed.source_port == 53,
+           "IPv6 extension to UDP");
+    extended[55] = 2;
+    expect(!netscope::parse_packet(extended.data(), extended.size()).valid, "oversized IPv6 extension");
+
+    extended[20] = 44;
+    extended[54] = 17;
+    extended[55] = 0;
+    extended[57] = 1;  // More-fragments bit.
+    parsed = netscope::parse_packet(extended.data(), extended.size());
+    expect(parsed.valid && parsed.fragmented && parsed.transport == TransportProtocol::unknown,
+           "IPv6 fragment skips transport");
+    extended.resize(60);
+    extended[19] = 6;
+    expect(!netscope::parse_packet(extended.data(), extended.size()).valid, "short IPv6 extension");
 }
 
 void test_malformed() {
@@ -128,6 +157,20 @@ void test_malformed() {
     bytes[20] = 0x20;  // More fragments: skip L4 interpretation.
     const auto fragment = netscope::parse_packet(bytes.data(), bytes.size());
     expect(fragment.valid && fragment.fragmented && fragment.transport == TransportProtocol::unknown, "fragment handling");
+
+    std::vector<std::uint8_t> vlan(26, 0);
+    vlan[12] = 0x81; vlan[13] = 0x00;
+    vlan[16] = 0x81; vlan[17] = 0x00;
+    vlan[20] = 0x81; vlan[21] = 0x00;
+    expect(!netscope::parse_packet(vlan.data(), vlan.size()).valid, "excessive VLAN nesting");
+
+    std::mt19937 random(42);
+    std::uniform_int_distribution<int> octet(0, 255);
+    std::vector<std::uint8_t> fuzz(128);
+    for (int trial = 0; trial < 10000; ++trial) {
+        for (auto& byte : fuzz) byte = static_cast<std::uint8_t>(octet(random));
+        netscope::parse_packet(fuzz.data(), static_cast<std::size_t>(trial % 129));
+    }
 }
 
 }  // namespace

@@ -89,9 +89,10 @@ bool parse_transport(PacketInfo& info, const std::uint8_t* p, std::size_t length
         info.udp_length = udp_length;
         info.udp_checksum = read16(p + 6);
         info.application = application_name(info.source_port, info.destination_port);
-    } else if (info.ip_protocol == 1 || info.ip_protocol == 58) {
+    } else if ((info.network == NetworkProtocol::ipv4 && info.ip_protocol == 1) ||
+               (info.network == NetworkProtocol::ipv6 && info.ip_protocol == 58)) {
         if (length < 4) { info.error = "truncated ICMP header"; return false; }
-        info.transport = info.ip_protocol == 1 ? TransportProtocol::icmp : TransportProtocol::icmpv6;
+        info.transport = info.network == NetworkProtocol::ipv4 ? TransportProtocol::icmp : TransportProtocol::icmpv6;
         info.icmp_type = p[0];
         info.icmp_code = p[1];
     }
@@ -115,6 +116,10 @@ PacketInfo parse_packet(const std::uint8_t* bytes, std::size_t length) {
         if (length - offset < 4) { info.error = "truncated VLAN tag"; return info; }
         ether_type = read16(bytes + offset + 2);
         offset += 4;
+    }
+    if (ether_type == 0x8100 || ether_type == 0x88a8) {
+        info.error = "more than two VLAN tags";
+        return info;
     }
     const auto* p = bytes + offset;
     const auto available = length - offset;
@@ -153,10 +158,34 @@ PacketInfo parse_packet(const std::uint8_t* bytes, std::size_t length) {
         info.ttl = p[7];
         info.source_ip = ipv6_address(p + 8);
         info.destination_ip = ipv6_address(p + 24);
-        // Extension headers require a separate decoder. Keep the packet valid but do not guess at ports.
-        if (info.ip_protocol != 0 && info.ip_protocol != 43 && info.ip_protocol != 44 &&
-            info.ip_protocol != 50 && info.ip_protocol != 51 && info.ip_protocol != 60 &&
-            !parse_transport(info, p + 40, payload_length)) return info;
+        const auto* payload = p + 40;
+        std::size_t remaining = payload_length;
+        int extensions = 0;
+        while (info.ip_protocol == 0 || info.ip_protocol == 43 || info.ip_protocol == 44 ||
+               info.ip_protocol == 51 || info.ip_protocol == 60) {
+            if (++extensions > 16) { info.error = "too many IPv6 extension headers"; return info; }
+            const bool fragment_header = info.ip_protocol == 44;
+            if (remaining < (fragment_header ? 8u : 2u)) {
+                info.error = "truncated IPv6 extension header";
+                return info;
+            }
+            std::size_t extension_length = fragment_header ? 8u :
+                (info.ip_protocol == 51 ? static_cast<std::size_t>(payload[1] + 2) * 4 :
+                                          static_cast<std::size_t>(payload[1] + 1) * 8);
+            if (extension_length > remaining || extension_length < (fragment_header ? 8u : 2u)) {
+                info.error = "invalid IPv6 extension length";
+                return info;
+            }
+            if (fragment_header)
+                info.fragmented = (read16(payload + 2) & 0xfff9) != 0;
+            info.ip_protocol = payload[0];
+            payload += extension_length;
+            remaining -= extension_length;
+            if (info.fragmented) break;  // Transport header may be incomplete even in the first fragment.
+        }
+        // ESP is encrypted and 59 means no next header; neither exposes transport fields.
+        if (!info.fragmented && info.ip_protocol != 50 && info.ip_protocol != 59 &&
+            !parse_transport(info, payload, remaining)) return info;
     } else if (ether_type == 0x0806) {
         info.network = NetworkProtocol::arp;
         if (available < 28) { info.error = "truncated ARP packet"; return info; }
