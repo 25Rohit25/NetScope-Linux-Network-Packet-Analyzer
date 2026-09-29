@@ -7,14 +7,19 @@
 namespace netscope {
 namespace {
 
-template <typename Key>
-std::vector<std::pair<Key, Counter>> top_five(const std::map<Key, Counter>& counters) {
-    std::vector<std::pair<Key, Counter>> result(counters.begin(), counters.end());
-    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-        if (a.second.bytes != b.second.bytes) return a.second.bytes > b.second.bytes;
+template <typename Key, typename Value, typename Bytes>
+std::vector<std::pair<Key, Value>> top_five(const std::map<Key, Value>& counters, Bytes bytes) {
+    std::vector<std::pair<Key, Value>> result;
+    const auto better = [&](const auto& a, const auto& b) {
+        if (bytes(a.second) != bytes(b.second)) return bytes(a.second) > bytes(b.second);
         return a.first < b.first;
-    });
-    if (result.size() > 5) result.resize(5);
+    };
+    for (const auto& entry : counters) {
+        if (result.size() == 5 && !better(entry, result.back())) continue;
+        const auto where = std::lower_bound(result.begin(), result.end(), entry, better);
+        result.insert(where, entry);
+        if (result.size() > 5) result.pop_back();
+    }
     return result;
 }
 
@@ -44,10 +49,17 @@ void Statistics::note_queue_drop() {
     ++totals_.queue_dropped;
 }
 
-void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp) {
+void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp,
+                        std::chrono::nanoseconds latency) {
     std::lock_guard<std::mutex> lock(mutex_);
     ++totals_.processed;
     totals_.processed_bytes += packet.captured_bytes;
+    if (latency.count() > 0) {
+        const auto elapsed = static_cast<std::uint64_t>(latency.count());
+        ++totals_.latency_samples;
+        totals_.total_latency_ns += elapsed;
+        totals_.max_latency_ns = std::max(totals_.max_latency_ns, elapsed);
+    }
     if (!packet.valid) {
         ++totals_.malformed;
         return;
@@ -91,8 +103,9 @@ Snapshot Statistics::snapshot(std::size_t queue_depth) const {
     result.queue_depth = queue_depth;
     result.flows = flows_.size();
     result.elapsed_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started_).count();
-    result.top_hosts = top_five(hosts_);
-    result.top_ports = top_five(ports_);
+    result.top_hosts = top_five(hosts_, [](const Counter& count) { return count.bytes; });
+    result.top_ports = top_five(ports_, [](const Counter& count) { return count.bytes; });
+    result.top_flows = top_five(flows_, [](const FlowStats& flow) { return flow.traffic.bytes; });
     return result;
 }
 
@@ -113,7 +126,14 @@ std::string format_snapshot(const Snapshot& s) {
         << "  Flows: " << s.flows << "  Flow-limit skips: " << s.untracked_flows << '\n';
     if (s.elapsed_seconds > 0) {
         out << "Average capture/processing rate: " << std::setprecision(0)
-            << s.captured / s.elapsed_seconds << '/' << s.processed / s.elapsed_seconds << " packets/s\n";
+            << s.captured / s.elapsed_seconds << '/' << s.processed / s.elapsed_seconds << " packets/s\n"
+            << "Average captured/processed throughput: "
+            << s.captured_bytes / s.elapsed_seconds << '/' << s.processed_bytes / s.elapsed_seconds << " bytes/s\n";
+    }
+    if (s.latency_samples > 0) {
+        out << "Queue plus parse latency avg/max: " << std::setprecision(3)
+            << static_cast<double>(s.total_latency_ns) / s.latency_samples / 1000000.0 << '/'
+            << static_cast<double>(s.max_latency_ns) / 1000000.0 << " ms\n";
     }
     if (!s.top_hosts.empty()) {
         out << "Top source hosts (packets, bytes):\n";
@@ -124,6 +144,18 @@ std::string format_snapshot(const Snapshot& s) {
         out << "Top destination ports (packets, bytes):\n";
         for (const auto& entry : s.top_ports)
             out << "  " << entry.first << "  " << entry.second.packets << "  " << entry.second.bytes << '\n';
+    }
+    if (!s.top_flows.empty()) {
+        out << "Top directional flows (packets, bytes, TCP state):\n";
+        for (const auto& entry : s.top_flows) {
+            const auto& key = entry.first;
+            const auto& flow = entry.second;
+            out << "  " << transport_name(key.protocol) << ' ' << key.source_ip << ':' << key.source_port
+                << " -> " << key.destination_ip << ':' << key.destination_port << "  "
+                << flow.traffic.packets << "  " << flow.traffic.bytes;
+            if (key.protocol == TransportProtocol::tcp) out << "  " << flow.tcp_state;
+            out << '\n';
+        }
     }
     return out.str();
 }

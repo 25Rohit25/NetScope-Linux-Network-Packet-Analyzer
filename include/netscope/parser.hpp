@@ -21,6 +21,7 @@ struct PacketInfo {
     std::string destination_ip;
     std::uint8_t ttl = 0;
     std::uint8_t ip_protocol = 0;
+    std::uint16_t ipv4_checksum = 0;
     std::uint16_t source_port = 0;
     std::uint16_t destination_port = 0;
     std::uint32_t tcp_sequence = 0;
@@ -28,9 +29,12 @@ struct PacketInfo {
     std::uint8_t tcp_flags = 0;
     std::uint16_t tcp_window = 0;
     std::uint16_t udp_length = 0;
+    std::uint16_t udp_checksum = 0;
     std::uint8_t icmp_type = 0;
     std::uint8_t icmp_code = 0;
     std::uint16_t arp_operation = 0;
+    std::string arp_sender_mac;
+    std::string arp_target_mac;
     bool fragmented = false;
     std::string application;
 };

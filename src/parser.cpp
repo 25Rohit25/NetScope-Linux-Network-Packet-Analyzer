@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 namespace netscope {
 namespace {
@@ -86,6 +87,7 @@ bool parse_transport(PacketInfo& info, const std::uint8_t* p, std::size_t length
         info.source_port = read16(p);
         info.destination_port = read16(p + 2);
         info.udp_length = udp_length;
+        info.udp_checksum = read16(p + 6);
         info.application = application_name(info.source_port, info.destination_port);
     } else if (info.ip_protocol == 1 || info.ip_protocol == 58) {
         if (length < 4) { info.error = "truncated ICMP header"; return false; }
@@ -133,6 +135,7 @@ PacketInfo parse_packet(const std::uint8_t* bytes, std::size_t length) {
         }
         info.ttl = p[8];
         info.ip_protocol = p[9];
+        info.ipv4_checksum = read16(p + 10);
         info.source_ip = ipv4_address(p + 12);
         info.destination_ip = ipv4_address(p + 16);
         info.fragmented = (read16(p + 6) & 0x3fff) != 0;
@@ -162,6 +165,8 @@ PacketInfo parse_packet(const std::uint8_t* bytes, std::size_t length) {
             return info;
         }
         info.arp_operation = read16(p + 6);
+        info.arp_sender_mac = mac_address(p + 8);
+        info.arp_target_mac = mac_address(p + 18);
         info.source_ip = ipv4_address(p + 14);
         info.destination_ip = ipv4_address(p + 24);
     }
@@ -201,6 +206,27 @@ std::string packet_summary(const PacketInfo& packet) {
     }
     if (!packet.application.empty()) out << " [" << packet.application << ']';
     if (packet.fragmented) out << " [fragmented]";
+    if (packet.network == NetworkProtocol::ipv4 || packet.network == NetworkProtocol::ipv6)
+        out << " ttl=" << static_cast<unsigned>(packet.ttl);
+    if (packet.transport == TransportProtocol::tcp) {
+        out << " seq=" << packet.tcp_sequence << " ack=" << packet.tcp_acknowledgment
+            << " flags=";
+        const char* separator = "";
+        for (const auto& flag : {std::pair<std::uint8_t, const char*>{0x02, "SYN"},
+                                 {0x10, "ACK"}, {0x01, "FIN"}, {0x04, "RST"},
+                                 {0x08, "PSH"}, {0x20, "URG"}})
+            if (packet.tcp_flags & flag.first) {
+                out << separator << flag.second;
+                separator = ",";
+            }
+        if (*separator == '\0') out << '-';
+        out << " win=" << packet.tcp_window;
+    } else if (packet.transport == TransportProtocol::udp) {
+        out << " udp_len=" << packet.udp_length;
+    } else if (packet.transport == TransportProtocol::icmp || packet.transport == TransportProtocol::icmpv6) {
+        out << " type=" << static_cast<unsigned>(packet.icmp_type)
+            << " code=" << static_cast<unsigned>(packet.icmp_code);
+    }
     return out.str();
 }
 

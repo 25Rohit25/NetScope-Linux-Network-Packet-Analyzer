@@ -45,7 +45,7 @@ void test_statistics_and_flows() {
     packet.destination_port = 443;
     packet.tcp_flags = 0x02;
     stats.note_captured(54, 1);
-    stats.record(packet, now);
+    stats.record(packet, now, std::chrono::microseconds(250));
     auto flows = stats.flows();
     expect(flows.size() == 1 && flows.begin()->second.tcp_state == "SYN_SENT", "SYN flow state");
     packet.tcp_flags = 0x10;
@@ -69,7 +69,10 @@ void test_statistics_and_flows() {
     expect(snapshot.top_hosts.size() == 1 && snapshot.top_hosts[0].second.bytes == 162, "top hosts");
     expect(snapshot.top_ports.size() == 1 && snapshot.top_ports[0].first == 443, "top ports");
     expect(snapshot.max_queue_depth == 2, "peak queue depth");
+    expect(snapshot.latency_samples == 1 && snapshot.max_latency_ns == 250000, "processing latency");
+    expect(snapshot.top_flows.size() == 1 && snapshot.top_flows[0].second.traffic.packets == 2, "visible flows");
     expect(netscope::format_snapshot(snapshot).find("Queue dropped: 1") != std::string::npos, "formatted report");
+    expect(netscope::format_snapshot(snapshot).find("ESTABLISHED") != std::string::npos, "flow report");
 }
 
 }  // namespace

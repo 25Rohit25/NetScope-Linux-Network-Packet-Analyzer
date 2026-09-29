@@ -24,7 +24,7 @@ sudo ./build/netscope -i eth0 --filter 'tcp port 443' --verbose
 
 Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, lets workers process its remaining packets, and prints the final report. A full queue drops incoming packets instead of delaying the capture thread. `Queue dropped` counts these application drops; live captures also show the kernel's libpcap drop count where available. Live capture normally needs root or packet-capture capabilities.
 
-`--verbose` prints one summary per packet, including malformed-packet reasons. The default view prints periodic statistics every five seconds and a final report. Rates are averages since capture start. Flow keys are directional five-tuples; TCP state is an observation-based summary rather than a full TCP state machine. Flow storage is capped at 100,000 distinct flows, and the report counts packets whose new flows could not be stored.
+`--verbose` prints one summary per packet, including malformed-packet reasons. The default view prints periodic statistics every five seconds and a final report. Rates are averages since capture start; latency measures time from enqueue through parsing. The report includes the five largest directional flows by bytes. Flow keys are directional five-tuples; TCP state is an observation-based summary rather than a full TCP state machine. Flow storage is capped at 100,000 distinct flows, and the report counts packets whose new flows could not be stored.
 
 ## Protocol coverage and limits
 
@@ -34,7 +34,7 @@ Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, let
 - IPv4 fragments remain visible but are not decoded as transport packets; IPv6 extension headers remain visible without transport decoding
 - Ethernet link type only; no TCP reassembly, application payload parsing, or IPv4 checksum validation
 
-The parser rejects truncated or inconsistent supported headers before accessing fields. Packet bytes are copied before libpcap advances, so workers never hold a pointer into libpcap's reused capture buffer.
+The parser rejects truncated or inconsistent supported headers before accessing fields. It extracts IPv4 and UDP checksum fields but does not validate checksum integrity. Packet bytes are copied before libpcap advances, so workers never hold a pointer into libpcap's reused capture buffer.
 
 ## Project layout
 

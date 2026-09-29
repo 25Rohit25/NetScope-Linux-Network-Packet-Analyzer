@@ -55,9 +55,13 @@ struct Snapshot {
     std::size_t max_queue_depth = 0;
     std::size_t flows = 0;
     std::uint64_t untracked_flows = 0;
+    std::uint64_t latency_samples = 0;
+    std::uint64_t total_latency_ns = 0;
+    std::uint64_t max_latency_ns = 0;
     double elapsed_seconds = 0;
     std::vector<std::pair<std::string, Counter>> top_hosts;
     std::vector<std::pair<std::uint16_t, Counter>> top_ports;
+    std::vector<std::pair<FlowKey, FlowStats>> top_flows;
 };
 
 class Statistics {
@@ -65,7 +69,8 @@ public:
     explicit Statistics(std::size_t flow_limit = 100000);
     void note_captured(std::size_t bytes, std::size_t queue_depth);
     void note_queue_drop();
-    void record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp);
+    void record(const PacketInfo& packet, std::chrono::system_clock::time_point timestamp,
+                std::chrono::nanoseconds latency = std::chrono::nanoseconds::zero());
     Snapshot snapshot(std::size_t queue_depth) const;
     std::map<FlowKey, FlowStats> flows() const;
 

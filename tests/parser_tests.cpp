@@ -44,7 +44,9 @@ void test_tcp() {
     expect(packet.ttl == 64 && packet.source_port == 50000 && packet.destination_port == 443, "IPv4/TCP fields");
     expect(packet.tcp_sequence == 0x01020304 && packet.tcp_flags == 0x02, "TCP sequence and SYN");
     expect(packet.tcp_window == 8192 && packet.application == "HTTPS", "TCP window and application");
+    expect(packet.ipv4_checksum == 0, "IPv4 checksum field");
     expect(netscope::packet_summary(packet).find("192.168.1.2:50000") != std::string::npos, "summary");
+    expect(netscope::packet_summary(packet).find("flags=SYN") != std::string::npos, "TCP flag summary");
 
     auto ack = bytes;
     ack[47] = 0x10;
@@ -62,7 +64,7 @@ void test_udp() {
     bytes[38] = 0; bytes[39] = 12;
     const auto packet = netscope::parse_packet(bytes.data(), bytes.size());
     expect(packet.valid && packet.transport == TransportProtocol::udp, "UDP packet");
-    expect(packet.destination_port == 53 && packet.udp_length == 12 && packet.application == "DNS", "UDP fields");
+    expect(packet.destination_port == 53 && packet.udp_length == 12 && packet.udp_checksum == 0x0304 && packet.application == "DNS", "UDP fields");
     bytes[39] = 13;
     expect(!netscope::parse_packet(bytes.data(), bytes.size()).valid, "truncated UDP payload");
 }

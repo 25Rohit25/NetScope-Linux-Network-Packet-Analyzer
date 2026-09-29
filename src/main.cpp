@@ -37,6 +37,7 @@ struct Options {
 
 struct RawPacket {
     std::chrono::system_clock::time_point timestamp;
+    std::chrono::steady_clock::time_point enqueued_at;
     std::vector<std::uint8_t> bytes;
 };
 
@@ -137,7 +138,9 @@ int run(const Options& options) {
             RawPacket raw;
             while (queue.pop(raw)) {
                 const auto packet = netscope::parse_packet(raw.bytes.data(), raw.bytes.size());
-                stats.record(packet, raw.timestamp);
+                const auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - raw.enqueued_at);
+                stats.record(packet, raw.timestamp, latency);
                 if (options.verbose) {
                     std::lock_guard<std::mutex> lock(output_mutex);
                     std::cout << netscope::packet_summary(packet) << '\n';
@@ -161,6 +164,7 @@ int run(const Options& options) {
             RawPacket packet;
             packet.timestamp = std::chrono::system_clock::from_time_t(header->ts.tv_sec) +
                 std::chrono::microseconds(header->ts.tv_usec);
+            packet.enqueued_at = std::chrono::steady_clock::now();
             packet.bytes.assign(bytes, bytes + header->caplen);
             const auto packet_size = packet.bytes.size();
             if (!queue.try_push(std::move(packet))) stats.note_queue_drop();
