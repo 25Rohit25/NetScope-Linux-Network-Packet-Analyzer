@@ -34,7 +34,7 @@ struct Options {
     std::string file_name;
     std::string filter;
     std::size_t workers = 4;
-    std::size_t queue_capacity = 4096;
+    std::size_t queue_capacity = 32768;
     unsigned interval_seconds = 5;
     std::size_t count = 0;
 };

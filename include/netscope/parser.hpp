@@ -34,6 +34,7 @@ struct PacketInfo {
     std::uint16_t udp_checksum = 0;
     std::uint8_t icmp_type = 0;
     std::uint8_t icmp_code = 0;
+    std::string icmp_message;
     std::uint16_t arp_operation = 0;
     std::string arp_sender_mac;
     std::string arp_target_mac;

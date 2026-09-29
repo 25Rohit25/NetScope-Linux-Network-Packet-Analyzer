@@ -78,7 +78,18 @@ void test_icmp_and_arp() {
     bytes[34] = 8;
     bytes[35] = 0;
     auto packet = netscope::parse_packet(bytes.data(), bytes.size());
-    expect(packet.valid && packet.transport == TransportProtocol::icmp && packet.icmp_type == 8, "ICMP echo request");
+    expect(packet.valid && packet.transport == TransportProtocol::icmp && packet.icmp_type == 8 &&
+           packet.icmp_message == "Echo Request", "ICMP echo request");
+    expect(netscope::packet_summary(packet).find("Echo Request") != std::string::npos, "named ICMP summary");
+    bytes.resize(38);
+    bytes[17] = 24;
+    expect(!netscope::parse_packet(bytes.data(), bytes.size()).valid, "short ICMP echo packet");
+    bytes[34] = 3;
+    expect(netscope::parse_packet(bytes.data(), bytes.size()).icmp_message == "Destination Unreachable",
+           "ICMP destination unreachable");
+    bytes[34] = 11;
+    expect(netscope::parse_packet(bytes.data(), bytes.size()).icmp_message == "Time Exceeded",
+           "ICMP time exceeded");
 
     std::vector<std::uint8_t> arp(42, 0);
     arp[12] = 0x08; arp[13] = 0x06;

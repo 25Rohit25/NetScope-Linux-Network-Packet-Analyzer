@@ -18,3 +18,5 @@ jobs:
         run: python3 tests/offline_load.py ./build-release/netscope --packets 200000 --workers 1 --queue-size 8192
       - name: Replay 200k packets with four workers
         run: python3 tests/offline_load.py ./build-release/netscope --packets 200000 --workers 4 --queue-size 8192
+      - name: Replay 200k packets with a larger queue
+        run: python3 tests/offline_load.py ./build-release/netscope --packets 200000 --workers 4 --queue-size 32768

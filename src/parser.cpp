@@ -60,6 +60,26 @@ std::string application_name(std::uint16_t source, std::uint16_t destination) {
     return {};
 }
 
+std::string icmp_message_name(NetworkProtocol network, std::uint8_t type) {
+    if (network == NetworkProtocol::ipv4) {
+        switch (type) {
+            case 0: return "Echo Reply";
+            case 3: return "Destination Unreachable";
+            case 8: return "Echo Request";
+            case 11: return "Time Exceeded";
+            default: return {};
+        }
+    }
+    switch (type) {
+        case 1: return "Destination Unreachable";
+        case 2: return "Packet Too Big";
+        case 3: return "Time Exceeded";
+        case 128: return "Echo Request";
+        case 129: return "Echo Reply";
+        default: return {};
+    }
+}
+
 bool parse_transport(PacketInfo& info, const std::uint8_t* p, std::size_t length) {
     if (info.ip_protocol == 6) {
         if (length < 20) { info.error = "truncated TCP header"; return false; }
@@ -92,9 +112,13 @@ bool parse_transport(PacketInfo& info, const std::uint8_t* p, std::size_t length
     } else if ((info.network == NetworkProtocol::ipv4 && info.ip_protocol == 1) ||
                (info.network == NetworkProtocol::ipv6 && info.ip_protocol == 58)) {
         if (length < 4) { info.error = "truncated ICMP header"; return false; }
+        const bool echo = info.network == NetworkProtocol::ipv4 ? (p[0] == 0 || p[0] == 8) :
+                                                            (p[0] == 128 || p[0] == 129);
+        if (echo && length < 8) { info.error = "truncated ICMP echo header"; return false; }
         info.transport = info.network == NetworkProtocol::ipv4 ? TransportProtocol::icmp : TransportProtocol::icmpv6;
         info.icmp_type = p[0];
         info.icmp_code = p[1];
+        info.icmp_message = icmp_message_name(info.network, info.icmp_type);
     }
     return true;
 }
@@ -259,6 +283,7 @@ std::string packet_summary(const PacketInfo& packet) {
     } else if (packet.transport == TransportProtocol::icmp || packet.transport == TransportProtocol::icmpv6) {
         out << " type=" << static_cast<unsigned>(packet.icmp_type)
             << " code=" << static_cast<unsigned>(packet.icmp_code);
+        if (!packet.icmp_message.empty()) out << " (" << packet.icmp_message << ')';
     }
     return out.str();
 }

@@ -26,13 +26,15 @@ sudo ./build/netscope -i eth0 --count 1000
 
 Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, lets workers process its remaining packets, and prints the final report. A full queue drops incoming packets instead of delaying the capture thread. `Queue dropped` counts these application drops; live captures also show the kernel's libpcap drop count where available. Capture truncation (`caplen < len`) is counted separately from malformed packet data. Live capture normally needs root or packet-capture capabilities.
 
+The default is four workers and a 32,768-packet queue. Adjust `--workers` and `--queue-size` for your traffic and memory budget. The queue absorbs short bursts; sustained traffic faster than parsing still causes drops.
+
 `--verbose` prints one summary per packet, including malformed-packet reasons. The default view prints periodic statistics every five seconds and a final report. It shows both averages since capture start and rates for each reporting interval; latency measures time from enqueue through parsing. `--count` stops after the specified number of captured packets, making repeatable captures and benchmarks easier. The report includes the five largest directional flows by bytes. Flow keys are directional five-tuples; TCP state is an observation-based summary rather than a full TCP state machine. Flow and source-host storage are each capped at 100,000 distinct entries, and the report counts packets whose new entries could not be stored.
 
 ## Protocol coverage and limits
 
 - Ethernet and up to two 802.1Q/802.1ad VLAN tags
 - IPv4, IPv6, and Ethernet/IPv4 ARP
-- TCP, UDP, ICMP, and ICMPv6; common application names inferred from well-known ports
+- TCP, UDP, ICMP, and ICMPv6 with named common ICMP messages; common application names inferred from well-known ports
 - IPv4 and IPv6 fragments remain visible but are not decoded as transport packets; common IPv6 extension headers are traversed with length and depth checks
 - Ethernet link type only; no TCP reassembly, application payload parsing, or IPv4 checksum validation
 
@@ -50,7 +52,8 @@ python3 tests/offline_load.py ./build/netscope --packets 100000 --workers 4 --qu
 
 The script prints wall time, processed packets per second, and queue drops. Compare runs with the same machine, compiler settings, and packet count; this synthetic replay measures NetScope's offline pipeline rather than live network capture. CI also runs a privileged loopback smoke test that exercises live capture and `--count`.
 
-The GitHub Actions **Offline benchmark** workflow can be launched manually. It builds a Release executable and replays 200,000 packets with one and four workers; both runs check packet accounting and print their results in the workflow log.
+The GitHub Actions **Offline benchmark** workflow can be launched manually. It builds a Release executable and replays 200,000 packets with one and four workers and two queue sizes; each run checks packet accounting and prints its results in the workflow log.
+Measured results and interpretation are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Project layout
 
