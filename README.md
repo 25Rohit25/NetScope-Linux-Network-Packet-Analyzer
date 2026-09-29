@@ -50,6 +50,8 @@ python3 tests/offline_load.py ./build/netscope --packets 100000 --workers 4 --qu
 
 The script prints wall time, processed packets per second, and queue drops. Compare runs with the same machine, compiler settings, and packet count; this synthetic replay measures NetScope's offline pipeline rather than live network capture. CI also runs a privileged loopback smoke test that exercises live capture and `--count`.
 
+The GitHub Actions **Offline benchmark** workflow can be launched manually. It builds a Release executable and replays 200,000 packets with one and four workers; both runs check packet accounting and print their results in the workflow log.
+
 ## Project layout
 
 `src/parser.cpp` decodes packets, `include/netscope/concurrent_queue.hpp` supplies the bounded producer-consumer queue, `src/statistics.cpp` aggregates traffic and flow data, and `src/main.cpp` owns libpcap and the CLI. `tests/` has byte-array parser tests, queue/statistics tests, and an offline PCAP integration smoke test.
