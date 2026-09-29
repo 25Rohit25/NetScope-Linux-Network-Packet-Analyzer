@@ -34,6 +34,8 @@ if(BUILD_TESTING)
     if(Python3_Interpreter_FOUND)
       add_test(NAME offline_smoke COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_smoke.py $<TARGET_FILE:netscope>)
+      add_test(NAME offline_load COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_load.py $<TARGET_FILE:netscope>)
     endif()
   endif()
 endif()

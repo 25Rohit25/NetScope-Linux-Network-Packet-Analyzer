@@ -55,6 +55,7 @@ struct Snapshot {
     std::size_t max_queue_depth = 0;
     std::size_t flows = 0;
     std::uint64_t untracked_flows = 0;
+    std::uint64_t untracked_hosts = 0;
     std::uint64_t latency_samples = 0;
     std::uint64_t total_latency_ns = 0;
     std::uint64_t max_latency_ns = 0;
@@ -76,6 +77,7 @@ public:
 
 private:
     const std::size_t flow_limit_;
+    const std::size_t host_limit_;
     const std::chrono::steady_clock::time_point started_;
     mutable std::mutex mutex_;
     Snapshot totals_;
@@ -85,5 +87,6 @@ private:
 };
 
 std::string format_snapshot(const Snapshot& snapshot);
+std::string format_interval(const Snapshot& current, const Snapshot& previous);
 
 }  // namespace netscope

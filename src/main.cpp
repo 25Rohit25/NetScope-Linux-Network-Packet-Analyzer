@@ -4,7 +4,6 @@
 
 #include <pcap.h>
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -33,6 +32,7 @@ struct Options {
     std::size_t workers = 4;
     std::size_t queue_capacity = 4096;
     unsigned interval_seconds = 5;
+    std::size_t count = 0;
 };
 
 struct RawPacket {
@@ -43,7 +43,7 @@ struct RawPacket {
 
 std::size_t positive_number(const std::string& value, std::size_t maximum, const char* option) {
     std::size_t used = 0;
-    std::size_t number = 0;
+    unsigned long long number = 0;
     try {
         number = std::stoull(value, &used);
     } catch (const std::exception&) {
@@ -51,7 +51,7 @@ std::size_t positive_number(const std::string& value, std::size_t maximum, const
     }
     if (used != value.size() || number == 0 || number > maximum)
         throw std::invalid_argument(std::string("invalid value for ") + option);
-    return number;
+    return static_cast<std::size_t>(number);
 }
 
 Options parse_options(int argc, char** argv) {
@@ -70,6 +70,7 @@ Options parse_options(int argc, char** argv) {
             else if (arg == "--workers") options.workers = positive_number(value, 128, "--workers");
             else if (arg == "--queue-size") options.queue_capacity = positive_number(value, 1000000, "--queue-size");
             else if (arg == "--interval") options.interval_seconds = static_cast<unsigned>(positive_number(value, 3600, "--interval"));
+            else if (arg == "--count") options.count = positive_number(value, 1000000000, "--count");
             else throw std::invalid_argument("unknown option: " + arg);
         }
     }
@@ -81,7 +82,7 @@ Options parse_options(int argc, char** argv) {
 void print_help() {
     std::cout << "NetScope - Linux packet analyzer\n"
               << "Usage: netscope --interfaces\n"
-              << "       netscope -i INTERFACE [--filter BPF] [--workers N] [--queue-size N] [--interval SEC] [-v]\n"
+              << "       netscope -i INTERFACE [--filter BPF] [--workers N] [--queue-size N] [--interval SEC] [--count N] [-v]\n"
               << "       netscope --file CAPTURE.pcap [same options]\n"
               << "       netscope --help\n";
 }
@@ -152,10 +153,12 @@ int run(const Options& options) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
     std::cout << "Capturing " << (options.file_name.empty() ? options.interface_name : options.file_name)
-              << " with " << options.workers << " workers. Press Ctrl+C to stop.\n";
+              << " with " << options.workers << " workers. Press Ctrl+C to stop.\n" << std::flush;
     auto next_report = std::chrono::steady_clock::now() + std::chrono::seconds(options.interval_seconds);
+    auto previous_report = stats.snapshot(queue.size());
     bool queue_warning = false;
     int exit_code = 0;
+    std::size_t captured_count = 0;
     while (!stop_requested) {
         struct pcap_pkthdr* header = nullptr;
         const u_char* bytes = nullptr;
@@ -167,25 +170,31 @@ int run(const Options& options) {
             packet.enqueued_at = std::chrono::steady_clock::now();
             packet.bytes.assign(bytes, bytes + header->caplen);
             const auto packet_size = packet.bytes.size();
-            if (!queue.try_push(std::move(packet))) stats.note_queue_drop();
-            const auto depth = queue.size();
+            std::size_t depth = 0;
+            if (!queue.try_push(std::move(packet), &depth)) stats.note_queue_drop();
             stats.note_captured(packet_size, depth);
+            ++captured_count;
             if (depth * 5 >= options.queue_capacity * 4 && !queue_warning) {
                 std::cerr << "WARN packet queue at least 80% full\n";
                 queue_warning = true;
             } else if (depth * 2 < options.queue_capacity) {
                 queue_warning = false;
             }
+            if (options.count != 0 && captured_count >= options.count) break;
         } else if (result == -2) {
             break;  // End of offline capture.
         } else if (result == -1) {
+            if (stop_requested) break;
             std::cerr << "Capture failed: " << pcap_geterr(capture.get()) << '\n';
             exit_code = 1;
             break;
         }
         if (std::chrono::steady_clock::now() >= next_report) {
             std::lock_guard<std::mutex> lock(output_mutex);
-            std::cout << netscope::format_snapshot(stats.snapshot(queue.size())) << std::flush;
+            const auto report = stats.snapshot(queue.size());
+            std::cout << netscope::format_snapshot(report)
+                      << netscope::format_interval(report, previous_report) << std::flush;
+            previous_report = report;
             next_report = std::chrono::steady_clock::now() + std::chrono::seconds(options.interval_seconds);
         }
     }

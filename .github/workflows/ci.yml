@@ -17,3 +17,5 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Live loopback smoke test
+        run: sudo python3 tests/live_smoke.py build/netscope

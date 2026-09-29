@@ -16,7 +16,9 @@ void expect(bool condition, const char* message) {
 
 void test_queue() {
     netscope::ConcurrentQueue<int> queue(2);
-    expect(queue.try_push(1) && queue.try_push(2), "queue insert");
+    std::size_t depth = 0;
+    expect(queue.try_push(1, &depth) && depth == 1 && queue.try_push(2, &depth) && depth == 2,
+           "queue insert and exact depth");
     expect(!queue.try_push(3) && queue.size() == 2, "bounded queue");
     int value = 0;
     expect(queue.pop(value) && value == 1, "FIFO first");
@@ -73,6 +75,15 @@ void test_statistics_and_flows() {
     expect(snapshot.top_flows.size() == 1 && snapshot.top_flows[0].second.traffic.packets == 2, "visible flows");
     expect(netscope::format_snapshot(snapshot).find("Queue dropped: 1") != std::string::npos, "formatted report");
     expect(netscope::format_snapshot(snapshot).find("ESTABLISHED") != std::string::npos, "flow report");
+    auto later = snapshot;
+    later.elapsed_seconds += 2;
+    later.captured += 20;
+    later.processed += 18;
+    expect(netscope::format_interval(later, snapshot).find("10/9 packets/s") != std::string::npos,
+           "interval rates");
+    packet.source_ip = "203.0.113.9";
+    stats.record(packet, now);
+    expect(stats.snapshot(0).untracked_hosts == 1, "source host capacity");
 }
 
 }  // namespace

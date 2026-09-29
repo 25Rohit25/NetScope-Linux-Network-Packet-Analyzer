@@ -20,11 +20,12 @@ The parser library and unit tests can build without libpcap; the `netscope` exec
 sudo ./build/netscope -i eth0 --workers 4 --queue-size 4096 --interval 5
 sudo ./build/netscope -i eth0 --filter 'tcp port 443' --verbose
 ./build/netscope --file traffic.pcap --filter 'udp port 53'
+sudo ./build/netscope -i eth0 --count 1000
 ```
 
 Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, lets workers process its remaining packets, and prints the final report. A full queue drops incoming packets instead of delaying the capture thread. `Queue dropped` counts these application drops; live captures also show the kernel's libpcap drop count where available. Live capture normally needs root or packet-capture capabilities.
 
-`--verbose` prints one summary per packet, including malformed-packet reasons. The default view prints periodic statistics every five seconds and a final report. Rates are averages since capture start; latency measures time from enqueue through parsing. The report includes the five largest directional flows by bytes. Flow keys are directional five-tuples; TCP state is an observation-based summary rather than a full TCP state machine. Flow storage is capped at 100,000 distinct flows, and the report counts packets whose new flows could not be stored.
+`--verbose` prints one summary per packet, including malformed-packet reasons. The default view prints periodic statistics every five seconds and a final report. It shows both averages since capture start and rates for each reporting interval; latency measures time from enqueue through parsing. `--count` stops after the specified number of captured packets, making repeatable captures and benchmarks easier. The report includes the five largest directional flows by bytes. Flow keys are directional five-tuples; TCP state is an observation-based summary rather than a full TCP state machine. Flow and source-host storage are each capped at 100,000 distinct entries, and the report counts packets whose new entries could not be stored.
 
 ## Protocol coverage and limits
 
@@ -35,6 +36,16 @@ Use Ctrl+C to stop a live capture. NetScope stops reading, closes the queue, let
 - Ethernet link type only; no TCP reassembly, application payload parsing, or IPv4 checksum validation
 
 The parser rejects truncated or inconsistent supported headers before accessing fields. It extracts IPv4 and UDP checksum fields but does not validate checksum integrity. Packet bytes are copied before libpcap advances, so workers never hold a pointer into libpcap's reused capture buffer.
+
+## Load test and benchmark
+
+The offline load test replays 20,000 generated UDP packets and checks that every captured packet was either processed or counted as a queue drop. Run a larger local benchmark with:
+
+```bash
+python3 tests/offline_load.py ./build/netscope --packets 100000 --workers 4 --queue-size 8192
+```
+
+The script prints wall time, processed packets per second, and queue drops. Compare runs with the same machine, compiler settings, and packet count; this synthetic replay measures NetScope's offline pipeline rather than live network capture. CI also runs a privileged loopback smoke test that exercises live capture and `--count`.
 
 ## Project layout
 

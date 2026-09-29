@@ -20,11 +20,15 @@ public:
     ConcurrentQueue& operator=(const ConcurrentQueue&) = delete;
 
     // Capture must never wait for a worker: a full queue drops the new packet.
-    bool try_push(T item) {
+    bool try_push(T item, std::size_t* resulting_depth = nullptr) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (closed_ || items_.size() == capacity_) return false;
+            if (closed_ || items_.size() == capacity_) {
+                if (resulting_depth) *resulting_depth = items_.size();
+                return false;
+            }
             items_.push(std::move(item));
+            if (resulting_depth) *resulting_depth = items_.size();
         }
         ready_.notify_one();
         return true;

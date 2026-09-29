@@ -35,7 +35,7 @@ std::string tcp_state(std::uint8_t flags, const std::string& previous) {
 }  // namespace
 
 Statistics::Statistics(std::size_t flow_limit)
-    : flow_limit_(flow_limit), started_(std::chrono::steady_clock::now()) {}
+    : flow_limit_(flow_limit), host_limit_(flow_limit), started_(std::chrono::steady_clock::now()) {}
 
 void Statistics::note_captured(std::size_t bytes, std::size_t queue_depth) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -71,9 +71,15 @@ void Statistics::record(const PacketInfo& packet, std::chrono::system_clock::tim
     if (packet.transport == TransportProtocol::udp) ++totals_.udp;
     if (packet.transport == TransportProtocol::icmp || packet.transport == TransportProtocol::icmpv6) ++totals_.icmp;
     if (!packet.source_ip.empty()) {
-        auto& host = hosts_[packet.source_ip];
-        ++host.packets;
-        host.bytes += packet.captured_bytes;
+        auto host = hosts_.find(packet.source_ip);
+        if (host == hosts_.end() && hosts_.size() < host_limit_)
+            host = hosts_.emplace(packet.source_ip, Counter{}).first;
+        if (host != hosts_.end()) {
+            ++host->second.packets;
+            host->second.bytes += packet.captured_bytes;
+        } else {
+            ++totals_.untracked_hosts;
+        }
     }
     if (packet.transport != TransportProtocol::tcp && packet.transport != TransportProtocol::udp) return;
     auto& port = ports_[packet.destination_port];
@@ -123,7 +129,8 @@ std::string format_snapshot(const Snapshot& s) {
         << "IPv4: " << s.ipv4 << "  IPv6: " << s.ipv6 << "  ARP: " << s.arp
         << "  TCP: " << s.tcp << "  UDP: " << s.udp << "  ICMP: " << s.icmp << '\n'
         << "Queue depth/peak: " << s.queue_depth << '/' << s.max_queue_depth
-        << "  Flows: " << s.flows << "  Flow-limit skips: " << s.untracked_flows << '\n';
+        << "  Flows: " << s.flows << "  Flow-limit skips: " << s.untracked_flows
+        << "  Host-limit skips: " << s.untracked_hosts << '\n';
     if (s.elapsed_seconds > 0) {
         out << "Average capture/processing rate: " << std::setprecision(0)
             << s.captured / s.elapsed_seconds << '/' << s.processed / s.elapsed_seconds << " packets/s\n"
@@ -157,6 +164,22 @@ std::string format_snapshot(const Snapshot& s) {
             out << '\n';
         }
     }
+    return out.str();
+}
+
+std::string format_interval(const Snapshot& current, const Snapshot& previous) {
+    const double seconds = current.elapsed_seconds - previous.elapsed_seconds;
+    if (seconds <= 0) return {};
+    const auto delta = [](std::uint64_t now, std::uint64_t before) {
+        return now >= before ? now - before : 0;
+    };
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(0)
+        << "Interval capture/processing rate: "
+        << delta(current.captured, previous.captured) / seconds << '/'
+        << delta(current.processed, previous.processed) / seconds << " packets/s; "
+        << delta(current.captured_bytes, previous.captured_bytes) / seconds
+        << " bytes/s captured\n";
     return out.str();
 }
 
